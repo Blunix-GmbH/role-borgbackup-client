@@ -1,0 +1,4 @@
+borgbackup_client_hooks: []
+borgbackup_client_server_hostname: backup
+borgbackup_client_cronjob_minute: "{{ range(0, 59) | random }}"
+borgbackup_client_cronjob_hour: "{{ range(0, 5) | random }}"

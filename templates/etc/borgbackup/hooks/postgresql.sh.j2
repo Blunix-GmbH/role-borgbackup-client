@@ -1,0 +1,233 @@
+#!/bin/bash
+#
+# PostgreSQL Backup script, original from https://wiki.postgresql.org/wiki/Automated_Backup_on_Linux
+#
+{{ ansible_managed | comment }}
+
+
+
+### TESTS
+
+# Determine if postgresql is installed and running
+if ! service postgresql status &> /dev/null; then
+    echo "UNABLE TO GET STATUS VIA service postgresql status! ABORTING ON ERROR!"
+    exit 1
+fi
+
+# Create backup dir
+mkdir -p /var/lib/postgresql-backup
+chown postgres:postgres /var/lib/postgresql-backup
+
+# Switch to user postgres. Yes, this is a bit ugly. EOF is all at the end of this script
+su -l postgres <<'EOF'
+cd /var/lib/postgresql
+
+
+
+
+
+# Quiet mode (true or false). Used for cron, so stdout will be redirected to /dev/null.
+QUIET_MODE=false
+test -z $1 || QUIET_MODE=true
+
+# Where to log messages to (works only in quiet mode)
+LOGFILE=/var/log/backup/postgresql.log
+
+# Where to safe monitoring information to
+MONITORING_STATEFILE=/var/log/backup/monitoring-postgresql.txt
+
+# Optional system user to run backups as. If the user the script is running as doesn't match this
+# the script terminates. Leave blank to skip check.
+BACKUP_USER=postgres
+
+# Optional hostname to adhere to pg_hba policies. If none is specified, -h will be omitted.
+HOSTNAME=
+
+# Optional username to connect to database as. Will default to "postgres" if none specified.
+USERNAME=
+
+# This dir will be created if it doesn't exist. This must be writable by the user the script is
+# running as.
+BACKUP_DIR=/var/lib/postgresql-backup
+
+# List of strings to match against in database name, separated by space or comma, for which we only
+# wish to keep a backup of the schema, not the data. Any database names which contain any of these
+# values will be considered candidates. (e.g. "system_log" will match "dev_system_log_2010-01")
+SCHEMA_ONLY_LIST=""
+
+# Backup style (see man pg_dump - "-F format"). Can be whitespace separated list of formats (as a bash array)
+# p = plain, Output a plain-text SQL script file (the default).
+# c = custom, Output a custom archive suitable for input into pg_restore. This is the most flexible format in that it allows reordering of loading data as well as object definitions. This format is also compressed by default.
+# t = tar, Output a tar archive suitable for input into pg_restore. Using this archive format allows reordering and/or exclusion of database objects at the time the database is restored. It is also possible to limit which data is reloaded at restore time.
+# d = directory, Output a directory-format archive suitable for input into pg_restore. This will create a directory with one file for each table and blob being dumped, plus a so-called Table of Contents file describing the dumped objects in a machine-readable format that pg_restore can read. A directory format archive can be manipulated with standard Unix tools; for example, files in an uncompressed archive can be compressed with the gzip tool. This format is compressed by default and also supports parallel dumps.
+#BACKUP_FORMAT_LIST=( p c t d )
+BACKUP_FORMAT_LIST=( p )
+
+# How long to safe the dumps in seconds. Deletion will start after successful backups are taken, so
+# there will be n+1 dumps present directly after the rsync run has finished, where n is the numbr
+# of runs within that timeframe.
+safe_time=176400 # two days + 1 hour
+
+# Delete outdated backups?
+delete_old=true
+
+
+
+# Set quiet mode
+if [[ "$QUIET_MODE" == "true" ]]; then
+        if [ ! -f $LOGFILE ]; then
+		if ! touch $LOGFILE; then
+			>&2 echo "[!!ERROR!!] Unable to create logfile $LOGFILE, aborting!"
+			exit 1
+		fi
+	fi
+	exec 1> $LOGFILE
+fi
+
+
+# Make sure we're running as the required backup user
+if [ "$BACKUP_USER" != "" -a "$(id -un)" != "$BACKUP_USER" ] ; then
+	>&2 echo "This script must be run as $BACKUP_USER. Exiting." 1>&2
+	exit 1
+fi
+
+
+
+### INITIALISE DEFAULTS
+
+# NOTE -h triggers `psql` to always ask for a password
+if [ ! -z $HOSTNAME ]; then
+	HOSTNAME="-h $HOSTNAME"
+fi;
+
+if [ -z $USERNAME ]; then
+	USERNAME="postgres"
+fi;
+
+# How to run the psql command
+psql="/usr/bin/psql -U $USERNAME $HOSTNAME"
+
+# How to run the pg_dump command
+pg_dump="/usr/bin/pg_dump -U $USERNAME $HOSTNAME"
+
+
+
+### START THE BACKUPS
+
+function perform_backups()
+{
+	timestamp="$(date +%s)"
+	#FINAL_BACKUP_DIR=$BACKUP_DIR/$timestamp
+	FINAL_BACKUP_DIR=$BACKUP_DIR
+
+	echo "Creating backup directory in $FINAL_BACKUP_DIR"
+
+	if ! mkdir -p $FINAL_BACKUP_DIR; then
+		>&2 echo "Cannot create backup directory in $FINAL_BACKUP_DIR. Go and fix it!" 1>&2
+		exit 1;
+	fi;
+
+        echo "Cleaning out previous backup"
+        rm -rfv $FINAL_BACKUP_DIR/*
+
+
+	### SCHEMA-ONLY BACKUPS
+
+        for SCHEMA_ONLY_DB in ${SCHEMA_ONLY_LIST//,/ }; do
+	        SCHEMA_ONLY_CLAUSE="$SCHEMA_ONLY_CLAUSE or datname ~ '$SCHEMA_ONLY_DB'"
+	done
+
+	SCHEMA_ONLY_QUERY="select datname from pg_database where false $SCHEMA_ONLY_CLAUSE order by datname;"
+
+	echo -e "\nPerforming schema-only backups"
+	echo -e "--------------------------------------------\n"
+
+	SCHEMA_ONLY_DB_LIST=`$psql -At -c "$SCHEMA_ONLY_QUERY" postgres`
+
+	echo -e "The following databases were matched for schema-only backup:\n${SCHEMA_ONLY_DB_LIST}\n"
+
+	for DATABASE in $SCHEMA_ONLY_DB_LIST; do
+	        echo "Schema-only backup of $DATABASE"
+
+	        if ! $pg_dump -Fp -s "$DATABASE" | gzip > ${FINAL_BACKUP_DIR}/${DATABASE}_SCHEMA.sql.gz.in_progress; then
+	                >&2 echo "[!!ERROR!!] Failed to backup database schema of $DATABASE" 1>&2
+	        else
+	                mv ${FINAL_BACKUP_DIR}/${DATABASE}_SCHEMA.sql.gz.in_progress ${FINAL_BACKUP_DIR}/${DATABASE}_SCHEMA.sql.gz
+	        fi
+	done
+
+
+	### FULL BACKUPS
+
+	for SCHEMA_ONLY_DB in ${SCHEMA_ONLY_LIST//,/ }; do
+		EXCLUDE_SCHEMA_ONLY_CLAUSE="$EXCLUDE_SCHEMA_ONLY_CLAUSE and datname !~ '$SCHEMA_ONLY_DB'"
+	done
+
+	FULL_BACKUP_QUERY="select datname from pg_database where not datistemplate and datallowconn $EXCLUDE_SCHEMA_ONLY_CLAUSE order by datname;"
+
+	echo -e "\nPerforming full backups"
+	echo -e "--------------------------------------------\n"
+
+	for DATABASE in `$psql -At -c "$FULL_BACKUP_QUERY" postgres`; do
+		for FORMAT in ${BACKUP_FORMAT_LIST[@]}; do
+                        if [[ $FORMAT == 'p' ]]; then
+				BACKUP_FORMAT=plain
+                        elif [[ $FORMAT == 'c' ]]; then
+				BACKUP_FORMAT=custom
+                        elif [[ $FORMAT == 'd' ]]; then
+				BACKUP_FORMAT=directory
+                        elif [[ $FORMAT == 't' ]]; then
+				BACKUP_FORMAT=tar
+                        else
+				>&2 echo "[!!ERROR!!] Unsupported pg_dump output format selected, aborting!"
+                                exit 1
+			fi
+
+			echo "Taking backup of $DATABASE of format type $BACKUP_FORMAT"
+
+			if [[ $BACKUP_FORMAT != 'directory' ]]; then
+				if $pg_dump -F$FORMAT $DATABASE | gzip > ${FINAL_BACKUP_DIR}/$DATABASE.type_$BACKUP_FORMAT.gz.in_progress; then
+                                        echo -e "Backup of type $BACKUP_FORMAT for database $DATABASE completed successfully.\n"
+					mv ${FINAL_BACKUP_DIR}/$DATABASE.type_$BACKUP_FORMAT.gz.in_progress ${FINAL_BACKUP_DIR}/$DATABASE.type_$BACKUP_FORMAT.gz
+				else
+					>&2 echo -e "[!!ERROR!!] Failed to produce backup of format type $BACKUP_FORMAT for database $DATABASE\n" 1>&2
+				fi
+			else
+				test -d $FINAL_BACKUP_DIR/$DATABASE.type_$BACKUP_FORMAT/ && rm -rvf $FINAL_BACKUP_DIR/$DATABASE.type_$BACKUP_FORMAT/
+				if $pg_dump -Fd --file=$FINAL_BACKUP_DIR/$DATABASE.type_$BACKUP_FORMAT/ $DATABASE; then
+                                        echo -e "Backup of of type $BACKUP_FORMAT for database $DATABASE completed successfully.\n"
+				else
+					>&2 echo -e "[!!ERROR!!] Failed to produce backup of format type $BACKUP_FORMAT for database $DATABASE\n" 1>&2
+				fi
+			fi
+		done
+	done
+	echo -e "All database backups complete."
+}
+
+perform_backups
+
+
+### CLEANUP
+
+# Remove old dumps
+#for pgdump in $(ls -A $BACKUP_DIR); do
+#    if [[ "$delete_old" == "true" ]]; then
+#        expiredate=$(($timestamp - $safe_time))
+#        if [[ $pgdump -le $expiredate ]]; then
+#            echo "Remvoing expired postgres dump directory $pgdump from backup directory $BACKUP_DIR..."
+#            rm -rf $BACKUP_DIR/$pgdump; echo
+#        fi
+#    fi
+#done
+
+# Show databases
+#echo "The following backups are present now:"
+#for pgdumpdir in $(ls -A $BACKUP_DIR); do
+#	date --date @"$pgdumpdir"
+#done
+
+
+exit 0
+
+EOF

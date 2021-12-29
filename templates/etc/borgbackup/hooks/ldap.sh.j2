@@ -1,0 +1,20 @@
+#!/bin/bash
+#
+## Create an ldap dump
+{{ ansible_managed | comment }}
+
+set -e
+
+if ( ! which slapcat 2>&1 >/dev/null ) ; then
+    echo "ERROR: Please install slapcat!"
+    exit 1
+fi
+
+mkdir -p /var/lib/slapd-backups
+
+set -x
+
+rm -v /var/lib/slapd-backups/backup.ldif
+touch /var/lib/slapd-backups/backup.ldif
+chmod 400 /var/lib/slapd-backups/backup.ldif
+slapcat -l /var/lib/slapd-backups/backup.ldif

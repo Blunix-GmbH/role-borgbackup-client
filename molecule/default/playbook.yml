@@ -1,0 +1,10 @@
+- name: Converge
+  hosts: all
+  become: True
+  roles:
+    - role-borgbackup-server
+
+  vars:
+    borgbackup_client_server_hostname: exa-util-prod-backup-1
+    borgbackup_client_hook:
+      - mysql.sh

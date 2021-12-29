@@ -1,0 +1,27 @@
+#!/bin/bash
+#
+# Create a redis backup
+
+set -e
+
+if ( ! which redis-cli 2>&1 >/dev/null ) ; then
+    echo "ERROR: Please install redis-tools!"
+    exit 1
+fi
+mkdir -p /var/lib/redis-backups
+
+set -x
+
+redis-cli \
+    {% if borgbackup_client_redis_host is defined %}
+    -h {{ borgbackup_client_redis_host }} \
+    {% endif %}
+    {% if borgbackup_client_redis_port is defined %}
+    -p {{ borgbackup_client_redis_port }} \
+    {% endif %}
+    {% if borgbackup_client_redis_pass is defined %}
+    -a {{ borgbackup_client_redis_pass }} \
+    {% endif %}
+    save || exit $?
+
+mv -v /var/lib/redis/dump.rdb /var/lib/redis-backups/

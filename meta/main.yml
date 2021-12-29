@@ -1,0 +1,20 @@
+galaxy_info:
+
+  description: configures a borgbackup client
+  author: Peter Thurner
+  company: Blunix GmbH
+  license: Apache2
+  min_ansible_version: 2.9.10
+
+  platforms:
+  - name: Debian
+    versions:
+    - bullseye
+
+  galaxy_tags:
+  - blunix
+  - borgbackup
+  - borg
+  - backup
+
+dependencies: []

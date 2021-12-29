@@ -1,0 +1,43 @@
+#!/bin/bash
+#
+# Create backup
+
+set -e
+
+
+# Variables
+current_date=$(date +%d_%m_%y-%H_%M_%S)
+
+
+# Run hook scripts (if defined)
+{% for borgbackup_client_hook in borgbackup_client_hooks %}
+echo "EXECUTING HOOK: {{ borgbackup_client_hook }}" >> /var/log/borgbackup/${current_date}.log
+/etc/borgbackup/hooks/{{ borgbackup_client_hook }} >> /var/log/borgbackup/${current_date}.log 2>&1
+
+{% endfor %}
+
+# Run backup
+source /root/.bashrc.d/borgbackup.sh
+echo -e "\n\nEXECUTING BACKUP" >> /var/log/borgbackup/${current_date}.log
+time borg create \
+    --verbose \
+    --stats \
+    --exclude-caches \
+    --exclude /mnt \
+    --exclude /media \
+    --exclude /tmp \
+    --exclude /var \
+    --exclude /proc \
+    --exclude /sys \
+    --exclude /var/lib/mysql \
+    --exclude /var/lib/postgresql \
+    --exclude /var/lib/libvirt/images \
+    --exclude /home/borgbackup/archives \
+    --exclude "*.journal" \
+    --exclude "*.fsck" \
+    --exclude "*.lost+found" \
+    ssh://borgbackup@{{ borgbackup_client_server_hostname }}/home/borgbackup/archives/{{ inventory_hostname }}::$current_date \
+    / \
+    >> /var/log/borgbackup/${current_date}.log 2>&1
+
+echo borg_last_successful_backup $(date "+%s") > /var/lib/prometheus-node-textfile-collector/logs/borg_backup.prom

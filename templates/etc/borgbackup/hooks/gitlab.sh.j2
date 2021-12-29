@@ -1,0 +1,18 @@
+#!/bin/bash
+#
+# Create backup of gitlab following https://docs.gitlab.com/omnibus/settings/backups.html#backup-and-restore-omnibus-gitlab-configuration
+#
+{{ ansible_managed | comment }}
+
+
+set -e
+
+
+echo "Removing all previous backups"
+rm -rf /var/opt/gitlab/backups/*
+
+echo "Create backup"
+gitlab-rake gitlab:backup:create
+
+echo "Present gitlab backups:"
+ls /var/opt/gitlab/backups/

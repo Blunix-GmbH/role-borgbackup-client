@@ -1,0 +1,106 @@
+- name: install borgbackup
+  apt:
+    name: borgbackup
+    state: present
+
+
+
+- name: create directory /root/.ssh
+  file:
+    state: directory
+    path: /root/.ssh
+    owner: root
+    group: root
+    mode: 0700
+
+- name: generate a ssh keypair for root
+  shell: /usr/bin/ssh-keygen -q -t ed25519 -a 100 -o -f /root/.ssh/id_ed25519 -N ''
+  args:
+    chdir: /root/.ssh
+    executable: /bin/bash
+    creates: /root/.ssh/id_ed25519.pub
+
+- name: cat the ssh public key for loading it into a variable
+  shell: "cat /root/.ssh/id_ed25519.pub"
+  register: borgbackup_ssh_public_key_output
+
+- name: set borgbackup ssh public key as fact
+  set_fact:
+    borgbackup_ssh_public_key: "{{ borgbackup_ssh_public_key_output['stdout'] }}"
+
+- name: setup the ssh public key on the borgbackup server
+  lineinfile:
+    path: /home/borgbackup/.ssh/authorized_keys
+    create: True
+    owner: borgbackup
+    group: borgbackup
+    mode: "0640"
+    regexp: '.*{{ play_host }}.*'
+    line: |
+      command="/usr/bin/borg serve --append-only --restrict-to-path /home/borgbackup/archives/{{ play_host }}/",restrict {{ hostvars[play_host]['borgbackup_ssh_public_key'] }}
+  when: inventory_hostname == borgbackup_client_server_hostname
+  with_items: "{{ play_hosts }}"
+  loop_control:
+    loop_var: play_host
+
+- name: accept ssh host key of backup server
+  shell: "ssh -o StrictHostKeyChecking=no -o BatchMode=yes root@{{ borgbackup_client_server_hostname }} true || true"
+
+
+
+- name: create directory /etc/borgbackup/hooks
+  file:
+    state: directory
+    path: /etc/borgbackup/hooks
+    owner: root
+    group: root
+    mode: 0700
+
+- name: template the borgbackup client hooks
+  template:
+    src: "templates/etc/borgbackup/hooks/{{ borgbackup_client_hook }}.j2"
+    dest: "/etc/borgbackup/hooks/{{ borgbackup_client_hook }}"
+    owner: root
+    group: root
+    mode: 0700
+  with_items: "{{ borgbackup_client_hooks }}"
+  loop_control:
+    loop_var: borgbackup_client_hook
+
+
+
+- name: template the backup script
+  template:
+    src: templates/usr/local/sbin/borgbackup-create.sh.j2
+    dest: /usr/local/sbin/borgbackup-create.sh
+    owner: root
+    group: root
+    mode: 0700
+
+- name: create directory /var/log/borgbackup
+  file:
+    state: directory
+    path: /var/log/borgbackup
+    owner: root
+    group: root
+    mode: 0700
+
+- name: manage borgbackup_create cronjob
+  cron:
+    name: borgbackup_create
+    user: root
+    job: /usr/local/sbin/borgbackup-create.sh
+    minute: "{{ borgbackup_client_cronjob_minute }}"
+    hour: "{{ borgbackup_client_cronjob_hour }}"
+
+
+
+- name: create /root/.bashrc.d/borgbackup.sh
+  copy:
+    dest: /root/.bashrc.d/borgbackup.sh
+    owner: root
+    group: root
+    mode: 0500
+    content: |
+      export BORG_PASSPHRASE="{{ vars['borgbackup_passphrase_' + inventory_hostname] }}"
+      export BORG_REPO="ssh://borgbackup@{{ borgbackup_client_server_hostname }}/home/borgbackup/archives/{{ inventory_hostname }}"

@@ -1,0 +1,4 @@
+- src: git@git.blunix.com:ansible-roles/role-apache2.git
+  name: blunix_role-apache2_11.0.0
+  version: 11.0.0
+  scm: git

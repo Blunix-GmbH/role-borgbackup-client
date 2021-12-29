@@ -1,0 +1,93 @@
+#!/bin/bash
+#
+# Mysqldump based backup script
+#
+# Requires working root login to mysql via /root/.my.cnf
+#
+{{ ansible_managed | comment }}
+
+
+### VARIABLES
+
+# Where to safe the dumps
+dumpdir=/var/lib/mysql-backups
+
+# Delete all old dumps before proceeding
+deleteold=true
+
+# How to run mysqldump command (--hex-blob requires log-bin = mysql-bin is set in /etc/mysql/my.cnf)
+mysqldump="/usr/bin/mysqldump --lock-all-tables --routines --hex-blob"
+
+# Hostname of this machine
+hostname=$(hostname -f)
+
+# How long to safe the dumps in seconds. Deletion will start after successful backups are taken, so
+# there will be n+1 dumps present directly after the rsync run has finished.
+safe_time=176400 # two days + 1 hour
+
+starttime="$(date '+%s')"
+
+### TESTS
+
+# Determine if mysql is installed and running
+if which mysql &> /dev/null; then
+    if ! $(echo 'SHOW STATUS;' | mysql  &> /dev/null); then
+        echo "UNABLE TO ACCESS MYSQL BY mysqladmin status! ABORTING ON ERROR!"
+        exit 1
+    fi
+else
+    echo "COMMAND mysqladmin NOT FOUND IN \$PATH: $PATH ! ABORTING ON ERROR!"
+    exit 1
+fi
+
+# Test if gzip is installed and in PATH
+if [[ ! $(which gzip) ]]; then
+    echo "gzip is not installed on this system, please install, aborting!"
+    exit 1
+fi
+
+# Test if the backup dir is present
+test -d $dumpdir || mkdir -v $dumpdir
+
+
+
+### BACKUP
+
+# Iterate over all databases and create a dump
+for database in $(mysql -e 'show databases' -s --skip-column-names); do
+    if [[ $(echo $database | egrep 'mysql|information_schema|performance_schema') ]]; then
+        echo -e "Skipping database $database!"; continue
+    fi
+    echo "Processing database $database:"
+    timestamp=$(date +%s)
+    $mysqldump $database | gzip > "$dumpdir/${hostname}_${database}_${timestamp}.sql.gz"
+    echo -e "$mysqldump for database $database completed, file safed to $dumpdir/${hostname}_${database}_${timestamp}.sql.gz"
+done
+
+### CLEANUP
+
+# Remove old dumps
+if [[ "$(ls -A $dumpdir/*.sql.gz 2> /dev/null)" ]]; then
+    for dump in $(ls -A $dumpdir/*.sql.gz); do
+        dumpdate=$(echo $dump | rev | cut -c 8-17 | rev)
+        if [[ "$deleteold" == "true" ]]; then
+            expiredate=$(($starttime - $safe_time))
+	    if [[ $dumpdate -le $expiredate ]]; then
+                echo "Removing expired dump $dump:"
+                rm -vf $dump
+            fi
+        else
+            echo "No old dumps to remove"
+        fi
+    done
+    echo "Present mysql dumps:"
+    ls $dumpdir
+else
+    echo "There are no dumps present in $dumpdir, not removing old dumps"
+fi
+
+
+
+
+exit 0
+
