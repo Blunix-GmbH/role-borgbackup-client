@@ -1,6 +1,8 @@
 - name: install borgbackup
   apt:
-    name: borgbackup
+    name:
+      - borgbackup
+      - python3-llfuse
     state: present
 
 
