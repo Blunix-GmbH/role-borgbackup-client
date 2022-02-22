@@ -55,7 +55,7 @@ test -d $dumpdir || mkdir -v $dumpdir
 
 # Iterate over all databases and create a dump
 for database in $(mysql -e 'show databases' -s --skip-column-names); do
-    if [[ $(echo $database | egrep 'mysql|information_schema|performance_schema') ]]; then
+    if [[ $(echo $database | egrep 'information_schema|performance_schema') ]]; then
         echo -e "Skipping database $database!"; continue
     fi
     echo "Processing database $database:"
