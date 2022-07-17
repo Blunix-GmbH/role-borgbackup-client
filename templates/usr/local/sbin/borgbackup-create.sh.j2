@@ -2,7 +2,6 @@
 #
 # Create backup
 
-set -e
 
 
 # Variables
@@ -12,14 +11,17 @@ current_date=$(date +%d_%m_%y-%H_%M_%S)
 # Run hook scripts (if defined)
 {% for borgbackup_client_hook in borgbackup_client_hooks %}
 echo "EXECUTING HOOK: {{ borgbackup_client_hook }}" >> /var/log/borgbackup/${current_date}.log
-/etc/borgbackup/hooks/{{ borgbackup_client_hook }} >> /var/log/borgbackup/${current_date}.log 2>&1
+/etc/borgbackup/hooks/{{ borgbackup_client_hook }} 2>&1 >> /var/log/borgbackup/${current_date}.log 2>&1
+borg_hook_exit_status_{{ borgbackup_client_hook }}=$?
+echo borg_hook_exit_status_{{ borgbackup_client_hook }} $borg_hook_exit_status_{{ borgbackup_client_hook }} > /var/lib/prometheus-node-textfile-collector/logs/borg_hook_exit_status.prom
 
 {% endfor %}
+
 
 # Run backup
 source /root/.bashrc.d/borgbackup.sh
 echo -e "\n\nEXECUTING BACKUP" >> /var/log/borgbackup/${current_date}.log
-time borg create \
+{ time borg create \
     --verbose \
     --stats \
     --exclude-caches \
@@ -37,6 +39,12 @@ time borg create \
     --exclude "*.lost+found" \
     ssh://borgbackup@{{ borgbackup_client_server_hostname }}/home/borgbackup/archives/{{ inventory_hostname }}::$current_date \
     / \
-    >> /var/log/borgbackup/${current_date}.log 2>&1
+    ; } 2>&1 >> /var/log/borgbackup/${current_date}.log
 
-echo borg_last_successful_backup $(date "+%s") > /var/lib/prometheus-node-textfile-collector/logs/borg_backup.prom
+borg_backup_exit_status=$?
+
+echo borg_backup_exit_status $borg_backup_exit_status > /var/lib/prometheus-node-textfile-collector/logs/borg_backup_exit_status.prom
+
+if [[ "$borg_backup_exit_status" == "0" ]]; then
+    echo borg_last_successful_backup $(date "+%s") > /var/lib/prometheus-node-textfile-collector/logs/borg_backup.prom
+fi
