@@ -9,6 +9,7 @@ current_date=$(date +%d_%m_%y-%H_%M_%S)
 
 
 # Run hook scripts (if defined)
+borg_hook_general_exit_status=0
 {% for borgbackup_client_hook in borgbackup_client_hooks %}
 echo "EXECUTING HOOK: {{ borgbackup_client_hook }}" >> /var/log/borgbackup/${current_date}.log
 
@@ -17,6 +18,10 @@ echo "EXECUTING HOOK: {{ borgbackup_client_hook }}" >> /var/log/borgbackup/${cur
 borg_hook_exit_status_{{ borgbackup_client_hook | replace('.', '_') | replace'-', '_') }}=$?
 
 echo borg_hook_exit_status_{{ borgbackup_client_hook }} $borg_hook_exit_status_{{ borgbackup_client_hook }} > /var/lib/prometheus-node-textfile-collector/logs/borg_hook_exit_status.prom
+
+if [[ "$borg_hook_exit_status" != "0" ]]; then
+    borg_hook_general_exit_status="$borg_hook_exit_status"
+fi
 
 {% endfor %}
 
@@ -55,3 +60,14 @@ echo borg_backup_exit_status $borg_backup_exit_status > /var/lib/prometheus-node
 if [[ "$borg_backup_exit_status" == "0" ]]; then
     echo borg_last_successful_backup $(date "+%s") > /var/lib/prometheus-node-textfile-collector/logs/borg_backup.prom
 fi
+
+# send message to monitoring if there is a problem
+if [[ "$borg_backup_exit_status" != "0" ]] || [[ "$borg_hook_general_exit_status" != "0" ]]; then
+    cat /var/log/borgbackup/${current_date}.log
+fi
+
+
+
+
+
+
