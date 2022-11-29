@@ -20,8 +20,8 @@ echo borg_hook_exit_status_{{ borgbackup_client_hook }} $borg_hook_exit_status_{
 
 # Run backup
 source /root/.bashrc.d/borgbackup.sh
-echo -e "\n\nEXECUTING BACKUP" >> /var/log/borgbackup/${current_date}.log
-{ time borg create \
+echo -e "\n\nBACKUP START $(date +%d_%m_%y-%H_%M_%S)\n" >> /var/log/borgbackup/${current_date}.log
+{ borg create \
     --verbose \
     --stats \
     --exclude-caches \
@@ -45,6 +45,7 @@ echo -e "\n\nEXECUTING BACKUP" >> /var/log/borgbackup/${current_date}.log
     ; } 2>&1 >> /var/log/borgbackup/${current_date}.log
 
 borg_backup_exit_status=$?
+echo -e "\n\nBACKUP END $(date +%d_%m_%y-%H_%M_%S)\n\n" >> /var/log/borgbackup/${current_date}.log
 
 echo borg_backup_exit_status $borg_backup_exit_status > /var/lib/prometheus-node-textfile-collector/logs/borg_backup_exit_status.prom
 
