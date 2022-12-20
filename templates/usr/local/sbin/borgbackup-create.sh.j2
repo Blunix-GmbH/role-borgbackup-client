@@ -15,7 +15,7 @@ echo "EXECUTING HOOK: {{ borgbackup_client_hook }}" >> /var/log/borgbackup/${cur
 
 /etc/borgbackup/hooks/{{ borgbackup_client_hook }} 2>&1 >> /var/log/borgbackup/${current_date}.log 2>&1
 
-borg_hook_exit_status_{{ borgbackup_client_hook | replace('.', '_') | replace'-', '_') }}=$?
+borg_hook_exit_status_{{ borgbackup_client_hook | replace('.', '_') | replace('-', '_') }}=$?
 
 echo borg_hook_exit_status_{{ borgbackup_client_hook }} $borg_hook_exit_status_{{ borgbackup_client_hook }} > /var/lib/prometheus-node-textfile-collector/logs/borg_hook_exit_status.prom
 
