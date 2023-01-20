@@ -91,7 +91,7 @@
   cron:
     name: borgbackup_create
     user: root
-    job: /usr/local/sbin/borgbackup-create.sh
+    job: "bash -c '/usr/bin/prom-cron borgbackup_create /usr/local/sbin/borgbackup-create.sh | sponge /var/lib/prometheus-node-textfile-collector/logs/borgbackup_create.prom'"
     minute: "{{ borgbackup_client_cronjob_minute }}"
     hour: "{{ borgbackup_client_cronjob_hour }}"
 
