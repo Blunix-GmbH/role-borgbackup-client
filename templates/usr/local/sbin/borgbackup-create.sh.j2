@@ -23,8 +23,8 @@ echo \
   $borg_hook_exit_status_{{ borgbackup_client_hook | replace('.', '_') | replace('-', '_') }} \
   > /var/lib/prometheus-node-textfile-collector/logs/borg_hook_exit_status.prom
 
-if [[ "$borg_hook_exit_status" != "0" ]]; then
-    borg_hook_general_exit_status="$borg_hook_exit_status"
+if [[ "$borg_hook_exit_status_{{ borgbackup_client_hook | replace('.', '_') | replace('-', '_') }}" != "0" ]]; then
+    borg_hook_general_exit_status="$borg_hook_exit_status_{{ borgbackup_client_hook | replace('.', '_') | replace('-', '_') }}"
 fi
 
 {% endfor %}
