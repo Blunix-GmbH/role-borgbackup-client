@@ -43,12 +43,7 @@ borg create \
     --exclude /proc \
     --exclude /sys \
     --exclude /run \
-    --exclude /var/lib/mysql \
-    --exclude /var/lib/postgresql \
-    --exclude /var/lib/docker \
-    --exclude /var/lib/libvirt/images \
-    --exclude /home/borgbackup/archives \
-    --exclude /var/lib/prometheus-server/data/wal \
+    --exclude /var/lib/ \
 {% for borgbackup_client_exclude_path in borgbackup_client_exclude_paths %}
     --exclude {{ borgbackup_client_exclude_path }} \
 {% endfor %}
