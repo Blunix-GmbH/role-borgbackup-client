@@ -67,12 +67,12 @@ echo -e "\n\nBACKUP END $(date +%d_%m_%y-%H_%M_%S)\n\n" >> $logfile
 
 echo borg_backup_exit_status $borg_backup_exit_status > /var/lib/prometheus-node-textfile-collector/logs/borg_backup_exit_status.prom
 
-if [[ "$borg_backup_exit_status" == "0" ]]; then
+# https://github.com/borgbackup/borg/issues/6622
+if [[ "$borg_backup_exit_status" == "0" ]] || [[ "$borg_backup_exit_status" == "1" ]]; then
     echo borg_last_successful_backup $(date "+%s") > /var/lib/prometheus-node-textfile-collector/logs/borg_backup.prom
-fi
 
 # send message to monitoring if there is a problem
-if [[ "$borg_backup_exit_status" != "0" ]] || [[ "$borg_hook_general_exit_status" != "0" ]]; then
+elif [[ "$borg_backup_exit_status" != "0" ]] && [[ "$borg_backup_exit_status" != "1" ]] || [[ "$borg_hook_general_exit_status" != "0" ]]; then
     echo "Error running borg backup!"
     echo "borg_backup_exit_status $borg_backup_exit_status"
     echo "borg_hook_general_exit_status $borg_hook_general_exit_status"
